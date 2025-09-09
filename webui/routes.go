@@ -13,8 +13,8 @@ import (
 	fiber "github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/middleware/filesystem"
 	"github.com/gofiber/fiber/v2/middleware/keyauth"
+	"github.com/mudler/LocalAGI/core/conversations"
 	"github.com/mudler/LocalAGI/core/sse"
-	"github.com/mudler/LocalAGI/services/connectors"
 
 	"github.com/mudler/LocalAGI/core/state"
 	"github.com/mudler/LocalAGI/core/types"
@@ -138,7 +138,7 @@ func (app *App) registerRoutes(pool *state.AgentPool, webapp *fiber.App) {
 
 	webapp.Post("/api/chat/:name", app.Chat(pool))
 
-	conversationTracker := connectors.NewConversationTracker[string](app.config.ConversationStoreDuration)
+	conversationTracker := conversations.NewConversationTracker[string](app.config.ConversationStoreDuration)
 
 	webapp.Post("/v1/responses", app.Responses(pool, conversationTracker))
 
@@ -188,6 +188,7 @@ func (app *App) registerRoutes(pool *state.AgentPool, webapp *fiber.App) {
 	// Add endpoint for getting agent config metadata
 	webapp.Get("/api/meta/agent/config", app.GetAgentConfigMeta())
 
+	webapp.Post("/api/action/:name/definition", app.GetActionDefinition(pool))
 	webapp.Post("/api/action/:name/run", app.ExecuteAction(pool))
 	webapp.Get("/api/actions", app.ListActions())
 
@@ -267,7 +268,7 @@ func (app *App) registerRoutes(pool *state.AgentPool, webapp *fiber.App) {
 		}
 
 		return c.JSON(fiber.Map{
-			"Name": name,
+			"Name":    name,
 			"History": agent.Observer().History(),
 		})
 	})

@@ -6,6 +6,7 @@ import (
 )
 
 type Creation struct {
+	ChatCompletionMessage *openai.ChatCompletionMessage `json:"chat_completion_message,omitempty"`
 	ChatCompletionRequest *openai.ChatCompletionRequest `json:"chat_completion_request,omitempty"`
 	FunctionDefinition    *openai.FunctionDefinition    `json:"function_definition,omitempty"`
 	FunctionParams        ActionParams                  `json:"function_params,omitempty"`
@@ -23,7 +24,8 @@ type Completion struct {
 	ChatCompletionResponse *openai.ChatCompletionResponse `json:"chat_completion_response,omitempty"`
 	Conversation           []openai.ChatCompletionMessage `json:"conversation,omitempty"`
 	ActionResult           string                         `json:"action_result,omitempty"`
-	AgentState             *AgentInternalState            `json:"agent_state"`
+	AgentState             *AgentInternalState            `json:"agent_state,omitempty"`
+	FilterResult 					 *FilterResult 									`json:"filter_result,omitempty"`
 }
 
 type Observable struct {

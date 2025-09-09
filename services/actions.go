@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"os"
 
 	"github.com/mudler/LocalAGI/core/action"
 	"github.com/mudler/LocalAGI/core/state"
@@ -19,8 +20,10 @@ const (
 	ActionSearch                         = "search"
 	ActionCustom                         = "custom"
 	ActionBrowserAgentRunner             = "browser-agent-runner"
+	ActionDeepResearchRunner             = "deep-research-runner"
 	ActionGithubIssueLabeler             = "github-issue-labeler"
 	ActionGithubIssueOpener              = "github-issue-opener"
+	ActionGithubIssueEditor              = "github-issue-editor"
 	ActionGithubIssueCloser              = "github-issue-closer"
 	ActionGithubIssueSearcher            = "github-issue-searcher"
 	ActionGithubRepositoryGet            = "github-repository-get-content"
@@ -33,6 +36,8 @@ const (
 	ActionGithubPRCreator                = "github-pr-creator"
 	ActionGithubGetAllContent            = "github-get-all-repository-content"
 	ActionGithubREADME                   = "github-readme"
+	ActionGithubRepositorySearchFiles    = "github-repository-search-files"
+	ActionGithubRepositoryListFiles      = "github-repository-list-files"
 	ActionScraper                        = "scraper"
 	ActionWikipedia                      = "wikipedia"
 	ActionBrowse                         = "browse"
@@ -42,6 +47,13 @@ const (
 	ActionCounter                        = "counter"
 	ActionCallAgents                     = "call_agents"
 	ActionShellcommand                   = "shell-command"
+	ActionSendTelegramMessage            = "send-telegram-message"
+	ActionSetReminder                    = "set_reminder"
+	ActionListReminders                  = "list_reminders"
+	ActionRemoveReminder                 = "remove_reminder"
+	ActionAddToMemory                    = "add_to_memory"
+	ActionListMemory                     = "list_memory"
+	ActionRemoveFromMemory               = "remove_from_memory"
 )
 
 var AvailableActions = []string{
@@ -49,11 +61,15 @@ var AvailableActions = []string{
 	ActionCustom,
 	ActionGithubIssueLabeler,
 	ActionGithubIssueOpener,
+	ActionGithubIssueEditor,
 	ActionGithubIssueCloser,
 	ActionGithubIssueSearcher,
 	ActionGithubRepositoryGet,
 	ActionGithubGetAllContent,
+	ActionGithubRepositorySearchFiles,
+	ActionGithubRepositoryListFiles,
 	ActionBrowserAgentRunner,
+	ActionDeepResearchRunner,
 	ActionGithubRepositoryCreateOrUpdate,
 	ActionGithubIssueReader,
 	ActionGithubIssueCommenter,
@@ -71,7 +87,21 @@ var AvailableActions = []string{
 	ActionCounter,
 	ActionCallAgents,
 	ActionShellcommand,
+	ActionSendTelegramMessage,
+	ActionSetReminder,
+	ActionListReminders,
+	ActionRemoveReminder,
+	ActionAddToMemory,
+	ActionListMemory,
+	ActionRemoveFromMemory,
 }
+
+const (
+	ActionConfigBrowserAgentRunner = "browser-agent-runner-base-url"
+	ActionConfigDeepResearchRunner = "deep-research-runner-base-url"
+	ActionConfigSSHBoxURL          = "sshbox-url"
+	ActionConfigStateDir           = "state-dir"
+)
 
 func Actions(actionsConfigs map[string]string) func(a *state.AgentConfig) func(ctx context.Context, pool *state.AgentPool) []types.Action {
 	return func(a *state.AgentConfig) func(ctx context.Context, pool *state.AgentPool) []types.Action {
@@ -104,6 +134,22 @@ func Action(name, agentName string, config map[string]string, pool *state.AgentP
 	var a types.Action
 	var err error
 
+	if config == nil {
+		config = map[string]string{}
+	}
+
+	// Compose memory file path based on stateDir and agentName, using a subdirectory
+	memoryFilePath := "memory.json"
+	if actionsConfigs != nil {
+		if stateDir, ok := actionsConfigs[ActionConfigStateDir]; ok && stateDir != "" {
+			memoryDir := fmt.Sprintf("%s/memory", stateDir)
+			_ = os.MkdirAll(memoryDir, 0755) // ensure the directory exists
+			memoryFilePath = fmt.Sprintf("%s/%s.json", memoryDir, agentName)
+		} else {
+			memoryFilePath = fmt.Sprintf("%s.memory.json", agentName)
+		}
+	}
+
 	switch name {
 	case ActionCustom:
 		a, err = action.NewCustom(config, "")
@@ -115,12 +161,16 @@ func Action(name, agentName string, config map[string]string, pool *state.AgentP
 		a = actions.NewGithubIssueLabeler(config)
 	case ActionGithubIssueOpener:
 		a = actions.NewGithubIssueOpener(config)
+	case ActionGithubIssueEditor:
+		a = actions.NewGithubIssueEditor(config)
 	case ActionGithubIssueCloser:
 		a = actions.NewGithubIssueCloser(config)
 	case ActionGithubIssueSearcher:
 		a = actions.NewGithubIssueSearch(config)
 	case ActionBrowserAgentRunner:
-		a = actions.NewBrowserAgentRunner(config, actionsConfigs["browser-agent-runner-base-url"])
+		a = actions.NewBrowserAgentRunner(config, actionsConfigs[ActionConfigBrowserAgentRunner])
+	case ActionDeepResearchRunner:
+		a = actions.NewDeepResearchRunner(config, actionsConfigs[ActionConfigDeepResearchRunner])
 	case ActionGithubIssueReader:
 		a = actions.NewGithubIssueReader(config)
 	case ActionGithubPRReader:
@@ -133,6 +183,10 @@ func Action(name, agentName string, config map[string]string, pool *state.AgentP
 		a = actions.NewGithubPRCreator(config)
 	case ActionGithubGetAllContent:
 		a = actions.NewGithubRepositoryGetAllContent(config)
+	case ActionGithubRepositorySearchFiles:
+		a = actions.NewGithubRepositorySearchFiles(config)
+	case ActionGithubRepositoryListFiles:
+		a = actions.NewGithubRepositoryListFiles(config)
 	case ActionGithubIssueCommenter:
 		a = actions.NewGithubIssueCommenter(config)
 	case ActionGithubRepositoryGet:
@@ -156,7 +210,21 @@ func Action(name, agentName string, config map[string]string, pool *state.AgentP
 	case ActionCallAgents:
 		a = actions.NewCallAgent(config, agentName, pool.InternalAPI())
 	case ActionShellcommand:
-		a = actions.NewShell(config)
+		a = actions.NewShell(config, actionsConfigs[ActionConfigSSHBoxURL])
+	case ActionSendTelegramMessage:
+		a = actions.NewSendTelegramMessageRunner(config)
+	case ActionSetReminder:
+		a = action.NewReminder()
+	case ActionListReminders:
+		a = action.NewListReminders()
+	case ActionRemoveReminder:
+		a = action.NewRemoveReminder()
+	case ActionAddToMemory:
+		a, _, _ = actions.NewMemoryActions(memoryFilePath, config)
+	case ActionListMemory:
+		_, a, _ = actions.NewMemoryActions(memoryFilePath, config)
+	case ActionRemoveFromMemory:
+		_, _, a = actions.NewMemoryActions(memoryFilePath, config)
 	default:
 		xlog.Error("Action not found", "name", name)
 		return nil, fmt.Errorf("Action not found")
@@ -182,9 +250,29 @@ func ActionsConfigMeta() []config.FieldGroup {
 			Fields: actions.BrowserAgentRunnerConfigMeta(),
 		},
 		{
+			Name:   "deep-research-runner",
+			Label:  "Deep Research Runner",
+			Fields: actions.DeepResearchRunnerConfigMeta(),
+		},
+		{
 			Name:   "generate_image",
 			Label:  "Generate Image",
 			Fields: actions.GenImageConfigMeta(),
+		},
+		{
+			Name:   "add_to_memory",
+			Label:  "Add to Memory",
+			Fields: actions.AddToMemoryConfigMeta(),
+		},
+		{
+			Name:   "list_memory",
+			Label:  "List Memory",
+			Fields: actions.ListMemoryConfigMeta(),
+		},
+		{
+			Name:   "remove_from_memory",
+			Label:  "Remove from Memory",
+			Fields: actions.RemoveFromMemoryConfigMeta(),
 		},
 		{
 			Name:   "github-issue-labeler",
@@ -195,6 +283,11 @@ func ActionsConfigMeta() []config.FieldGroup {
 			Name:   "github-issue-opener",
 			Label:  "GitHub Issue Opener",
 			Fields: actions.GithubIssueOpenerConfigMeta(),
+		},
+		{
+			Name:   "github-issue-editor",
+			Label:  "GitHub Issue Editor",
+			Fields: actions.GithubIssueEditorConfigMeta(),
 		},
 		{
 			Name:   "github-issue-closer",
@@ -225,6 +318,16 @@ func ActionsConfigMeta() []config.FieldGroup {
 			Name:   "github-get-all-repository-content",
 			Label:  "GitHub Get All Repository Content",
 			Fields: actions.GithubRepositoryGetAllContentConfigMeta(),
+		},
+		{
+			Name:   "github-repository-search-files",
+			Label:  "GitHub Repository Search Files",
+			Fields: actions.GithubRepositorySearchFilesConfigMeta(),
+		},
+		{
+			Name:   "github-repository-list-files",
+			Label:  "GitHub Repository List Files",
+			Fields: actions.GithubRepositoryListFilesConfigMeta(),
 		},
 		{
 			Name:   "github-repository-create-or-update-content",
@@ -299,6 +402,26 @@ func ActionsConfigMeta() []config.FieldGroup {
 		{
 			Name:   "call_agents",
 			Label:  "Call Agents",
+			Fields: actions.CallAgentConfigMeta(),
+		},
+		{
+			Name:   "send-telegram-message",
+			Label:  "Send Telegram Message",
+			Fields: actions.SendTelegramMessageConfigMeta(),
+		},
+		{
+			Name:   "set_reminder",
+			Label:  "Set Reminder",
+			Fields: []config.Field{},
+		},
+		{
+			Name:   "list_reminders",
+			Label:  "List Reminders",
+			Fields: []config.Field{},
+		},
+		{
+			Name:   "remove_reminder",
+			Label:  "Remove Reminder",
 			Fields: []config.Field{},
 		},
 	}

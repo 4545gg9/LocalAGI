@@ -2,8 +2,8 @@ package connectors
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
-	"time"
 
 	"github.com/bwmarrin/discordgo"
 	"github.com/mudler/LocalAGI/core/agent"
@@ -14,9 +14,8 @@ import (
 )
 
 type Discord struct {
-	token               string
-	defaultChannel      string
-	conversationTracker *ConversationTracker[string]
+	token          string
+	defaultChannel string
 }
 
 // NewDiscord creates a new Discord connector
@@ -25,15 +24,15 @@ type Discord struct {
 // - defaultChannel: Discord channel to always answer even if not mentioned
 func NewDiscord(config map[string]string) *Discord {
 
-	duration, err := time.ParseDuration(config["lastMessageDuration"])
-	if err != nil {
-		duration = 5 * time.Minute
+	token := config["token"]
+
+	if !strings.HasPrefix(token, "Bot ") {
+		token = "Bot " + token
 	}
 
 	return &Discord{
-		conversationTracker: NewConversationTracker[string](duration),
-		token:               config["token"],
-		defaultChannel:      config["defaultChannel"],
+		token:          token,
+		defaultChannel: config["defaultChannel"],
 	}
 }
 
@@ -83,6 +82,27 @@ func (d *Discord) Start(a *agent.Agent) {
 	}
 
 	dg.StateEnabled = true
+
+	if d.defaultChannel != "" {
+		// handle new conversations
+		a.AddSubscriber(func(ccm openai.ChatCompletionMessage) {
+			xlog.Debug("Subscriber(discord)", "message", ccm.Content)
+
+			// Send the message to the default channel
+			_, err := dg.ChannelMessageSend(d.defaultChannel, ccm.Content)
+			if err != nil {
+				xlog.Error(fmt.Sprintf("Error sending message: %v", err))
+			}
+
+			a.SharedState().ConversationTracker.AddMessage(
+				fmt.Sprintf("discord:%s", d.defaultChannel),
+				openai.ChatCompletionMessage{
+					Content: ccm.Content,
+					Role:    "assistant",
+				},
+			)
+		})
+	}
 
 	// Register the messageCreate func as a callback for MessageCreate events.
 	dg.AddHandler(d.messageCreate(a))
@@ -151,12 +171,12 @@ func (d *Discord) handleThreadMessage(a *agent.Agent, s *discordgo.Session, m *d
 
 func (d *Discord) handleChannelMessage(a *agent.Agent, s *discordgo.Session, m *discordgo.MessageCreate) {
 
-	d.conversationTracker.AddMessage(m.ChannelID, openai.ChatCompletionMessage{
+	a.SharedState().ConversationTracker.AddMessage(fmt.Sprintf("discord:%s", m.ChannelID), openai.ChatCompletionMessage{
 		Role:    "user",
 		Content: m.Content,
 	})
 
-	conv := d.conversationTracker.GetConversation(m.ChannelID)
+	conv := a.SharedState().ConversationTracker.GetConversation(fmt.Sprintf("discord:%s", m.ChannelID))
 
 	jobResult := a.Ask(
 		types.WithConversationHistory(conv),
@@ -167,7 +187,7 @@ func (d *Discord) handleChannelMessage(a *agent.Agent, s *discordgo.Session, m *
 		return
 	}
 
-	d.conversationTracker.AddMessage(m.ChannelID, openai.ChatCompletionMessage{
+	a.SharedState().ConversationTracker.AddMessage(fmt.Sprintf("discord:%s", m.ChannelID), openai.ChatCompletionMessage{
 		Role:    "assistant",
 		Content: jobResult.Response,
 	})
